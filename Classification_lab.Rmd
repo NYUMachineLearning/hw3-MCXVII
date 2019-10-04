@@ -44,6 +44,7 @@ $$RMSE=\sqrt{MSE}$$
 
 ## R^2
 Proportion of information explained by the model. It is a measure of correlation, not accuracy. 
+
 $$1-RSS/TSS$$ 
 
 ## L2 regularization : Ridge regression. Regularize by adding the sum of the coefficients, squared, to the function. 
@@ -174,19 +175,33 @@ median(resid(Ridge_regression))
 $$Lasso Regression=\sum_{i=1}^{n}(y_i - w_0 - \sum_{j=1}^{p}w_jx_{ij})^2 + \lambda\sum_{j=1}^p|w_j|$$
 2. Create and train model 
 ```{r}
+# ctrl =  trainControl(method = "boot", 15)
 
+Lasso_regression <- train(Temp ~ Wind + Month, data = train_regression,
+                          method = 'lasso', trControl= ctrl) 
 ```
 
 ```{r}
+Lasso_regression
 ```
 
 Examine the residuals 
 ```{r}
+resid(Lasso_regression)
+
+lasso_test_pred <- predict(Lasso_regression, newdata = test_regression)
 
 #plot the predicted values vs the observed values
+plot_lasso_test_pred <- data.frame(lasso_temp_pred = lasso_test_pred, observed_temp = test_regression$Temp)
 
+ggplot(data = plot_lasso_test_pred) +
+  geom_point(aes(x=observed_temp, y = lasso_temp_pred)) + 
+  ggtitle("True Temp Value vs Predicted Temp Value Lasso Regression") +
+  theme_bw()
 
 #median residual value should be close to zero
+median(resid(Lasso_regression))
+# The median residual is 0.07194436, which is very close to 0.
 ```
 
 
@@ -244,6 +259,7 @@ LDA
 ```{r}
 #predict the species of the test data
 LDA_predict <- predict(LDA, newdata=test_classifier)
+#install.packages("e1071")
 confusionMatrix(LDA_predict$class, reference = test_classifier$Species)
 ```
 
@@ -412,16 +428,89 @@ ggplot(data = test_classifier_log) +
 
 #Homework:
 
-1. Use the Breast Cancer dataset from the mlbench package, and predict whether the cancer is malignant or benign using one of the algorithms we learned about in class. Give some rationale as to why you chose this algorithm. Plot ROC curves, and confusion matrices. If you are choosing a hyperparameter like K or lambda, explain how and why you chose it. 
+1. Use the Breast Cancer dataset from the mlbench package, and predict whether the cancer is malignant or benign using one of the algorithms we learned about in class. Give some rationale as to why you chose this algorithm. Plot ROC curves, and confusion matrices. If you are choosing a (hyperparameter like K or lambda, explain how and why you chose it. 
 
 ```{r}
-#libra
-#train
-#test
+# Logistic regression is appropriate because the following assumptions are met:
+#   The dependent variable is binary (either benign or malignant).
+#   The observations are independent of one another (not from repeated measurements).
+#   We can rule out multicollinearity with the cor() function (view line 471).
+#   Our sample is large (699 observations, 683 after NA omission).
+#   There are no gross outliers. All values fall between 1 and 10.
 
-##ctrl <- trainControl()
-## <- train(, data = , method = "", trControl = ctrl)
-## predict(, newdata="")
+# Load mlbench library
+library(mlbench)
+
+# Load breast cancer dataset
+data(BreastCancer)
+BC <- na.omit(BreastCancer)
+
+# View before structure
+str(BC)
+
+# Change factors to numeric
+BC$Cl.thickness <- as.numeric(as.character(BC$Cl.thickness))
+BC$Cell.size <- as.numeric(as.character(BC$Cell.size))
+BC$Cell.shape <- as.numeric(as.character(BC$Cell.shape))
+BC$Marg.adhesion <- as.numeric(as.character(BC$Marg.adhesion))
+BC$Epith.c.size <- as.numeric(as.character(BC$Epith.c.size))
+BC$Bare.nuclei <- as.numeric(as.character(BC$Bare.nuclei))
+BC$Bl.cromatin  <- as.numeric(as.character(BC$Bl.cromatin))
+BC$Normal.nucleoli <- as.numeric(as.character(BC$Normal.nucleoli))
+BC$Mitoses <- as.numeric(as.character(BC$Mitoses))
+
+# Remove Ids
+BC$Id <- NULL
+
+# View after structure
+str(BC)
+
+# Check for multicollinearity between independent variables
+# Almost all values are relatively low (< 0.90), except one instance of 0.9072282
+# 0.90 is the upper threshold set by Tabachnick and Fidell (2013)
+cor(BC[1:9])
+
+# TRAIN PHASE
+
+# Split into train and test sets
+train_size <- floor(0.75 * nrow(BC))
+set.seed(17)
+train_pos <- sample(seq_len(nrow(BC)), size = train_size)
+train_classifier <- BC[train_pos,]
+test_classifier <- BC[-train_pos,]
+
+ctrl <- trainControl(method = "repeatedcv", repeats = 15,classProbs = T, savePredictions = T)
+
+# Train with logistic regression to predict class from all other attributes
+logistic_regression <- train(Class ~ ., data = train_classifier, method = "glm", family= "binomial", trControl = ctrl)
+
+# View results
+logistic_regression
+summary(logistic_regression)
+
+# TEST PHASE
+
+# Predict benign or malignant
+log_reg_pred <- predict(logistic_regression, newdata = test_classifier)
+
+# View confusion matriix
+confusionMatrix(log_reg_pred, reference = test_classifier$Class)
+# The confusion matrix yields very good results.
+# Accuracy is 0.9766, derived from 167 correct reads out of 171.
+# Only 4 samples were predicted to be malignant when actually benign (false positive).
+
+# Make ROC plot and calculate AUC
+plot(x = roc(predictor = logistic_regression$pred$benign,
+             response = logistic_regression$pred$obs)$specificities, 
+     y = roc(predictor = logistic_regression$pred$benign, 
+             response = logistic_regression$pred$obs)$sensitivities,
+     col= "blue", xlim = c(1, 0), type ="l", ylab = "Sensitivity",
+     xlab = "Specificity")
+legend("bottomright", legend = paste("Benign vs Malignant -- ", 
+                                     roc(predictor = logistic_regression$pred$benign,
+                                         response = logistic_regression$pred$obs)$auc, sep = ""), col = c("blue"), fill = c("blue"))
+
+# Our ROC plot extends nicely towards the upper left. The area under the curve (AUC) also very good (0.992225297923622).
 ```
 
 
